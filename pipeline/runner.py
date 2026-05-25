@@ -1,0 +1,267 @@
+import asyncio
+from datetime import datetime, timedelta, timezone
+from agent.main_agent import agent
+from agent.tools.pubmed_tool import search_pubmed
+from agent.tools.preprint_tool import search_preprints
+from agent.tools.trials_tool import search_clinical_trials
+from rag.ingestor import ingest_papers
+from pipeline.brief_generator import save_brief
+from rich.console import Console
+from google.adk.runners import InMemoryRunner
+from google.genai import types
+
+console = Console()
+
+
+def _filter_papers_by_date(papers: list, days_back: int) -> list:
+    """Post-filter papers by date since biomcp doesn't support date-range filtering."""
+    if not days_back:
+        return papers
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days_back)
+    filtered = []
+    for p in papers:
+        date_str = p.get("date", "")
+        if not date_str or date_str == "N/A":
+            filtered.append(p)
+            continue
+        try:
+            pub_date = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+            if pub_date >= cutoff:
+                filtered.append(p)
+        except Exception:
+            filtered.append(p)
+    return filtered
+
+
+async def run_pipeline(
+    disease_query: str,
+    days_back: int = 7,
+    max_papers: int = 20,
+    fetch_fresh: bool = True,
+) -> dict:
+    """Runs the full intelligence pipeline."""
+    console.print(
+        f"[bold green]Starting Pharma R&D Agent Pipeline for:[/bold green] {disease_query}")
+
+    steps = []
+    papers = []
+
+    # ── Step 1: Fetch + ingest papers ─────────────────────────────────────
+    if fetch_fresh and max_papers > 0:
+        console.print(
+            "[Search] Pre-fetching PubMed papers for RAG ingestion...")
+        prefetch_query = f"{disease_query} drug target 2025 2026"
+        all_papers = await search_pubmed(prefetch_query, days_back=days_back, max_results=max_papers)
+        papers = _filter_papers_by_date(
+            all_papers, days_back) if days_back > 0 else all_papers
+
+        # Fallback: if date filter removes everything, use unfiltered
+        if not papers and all_papers:
+            console.print(
+                "[yellow]Date filter removed all papers. Using unfiltered results.[/yellow]")
+            papers = all_papers[:max_papers]
+            steps.append({
+                "icon": "⚠️",
+                "label": f"No papers within {days_back} day window — using broader results",
+                "detail": f"Fetched {len(papers)} papers without date filter",
+                "status": "warn"
+            })
+
+        if papers:
+            console.print(
+                f"[Database] Ingesting {len(papers)} papers into local ChromaDB RAG...")
+            ingest_papers(papers)
+            steps.append({
+                "icon": "🔍",
+                "label": f"Fetched {len(papers)} papers from PubMed",
+                "detail": f"Query: '{prefetch_query}'",
+                "status": "ok"
+            })
+            steps.append({
+                "icon": "💾",
+                "label": f"Ingested papers into knowledge base (ChromaDB)",
+                "detail": "Duplicate PMIDs skipped automatically",
+                "status": "ok"
+            })
+        else:
+            console.print(
+                "[yellow]No papers found. Agent will rely on existing knowledge base.[/yellow]")
+            steps.append({
+                "icon": "⚠️",
+                "label": "No papers retrieved from PubMed",
+                "detail": "Agent will rely on existing knowledge base",
+                "status": "warn"
+            })
+    else:
+        steps.append({
+            "icon": "📦",
+            "label": "Using existing knowledge base (no new fetch)",
+            "detail": "Toggle 'Fetch fresh papers' ON to pull new data from PubMed",
+            "status": "ok"
+        })
+
+    # ── Step 2: Fetch preprints ────────────────────────────────────────────
+    preprints = []
+    if fetch_fresh:
+        console.print("[Search] Fetching preprints from bioRxiv / medRxiv...")
+        try:
+            preprints = await search_preprints(disease_query, days_back=days_back, max_results=15)
+            steps.append({
+                "icon": "📄",
+                "label": f"Fetched {len(preprints)} preprints from bioRxiv / medRxiv",
+                "detail": "Via Europe PMC — tagged as unreviewed in brief",
+                "status": "ok" if preprints else "warn"
+            })
+        except Exception as e:
+            console.print(f"[yellow]Preprint fetch failed: {e}[/yellow]")
+            steps.append({"icon": "⚠️", "label": "Preprint fetch failed",
+                         "detail": str(e), "status": "warn"})
+
+    # ── Step 3: Fetch clinical trials ──────────────────────────────────────
+    trials = []
+    console.print("[Search] Checking ClinicalTrials.gov...")
+    try:
+        trials = await search_clinical_trials(condition=disease_query)
+        steps.append({
+            "icon": "🏥",
+            "label": f"Found {len(trials)} active/recruiting clinical trials",
+            "detail": f"Condition: {disease_query}",
+            "status": "ok" if trials else "warn"
+        })
+    except Exception as e:
+        console.print(f"[yellow]Trials fetch failed: {e}[/yellow]")
+        steps.append({"icon": "⚠️", "label": "Clinical trials fetch failed",
+                     "detail": str(e), "status": "warn"})
+
+    console.print("[Agent] Starting Agent Workflow...")
+    steps.append({
+        "icon": "🤖",
+        "label": "Agent started — querying RAG, PubMed, Open Targets, UniProt",
+        "detail": f"Disease area: {disease_query}",
+        "status": "ok"
+    })
+
+    prompt = (
+        f"Analyze the following disease area and produce a full hypothesis brief: {disease_query}\n\n"
+        f"IMPORTANT: When calling search_pubmed, use days_back={days_back} and max_results={max_papers}."
+    )
+    trace_lines = []
+    brief_content = ""
+
+    runner = None
+    try:
+        runner = InMemoryRunner(agent=agent)
+        await runner.session_service.create_session(
+            app_name="InMemoryRunner",
+            user_id="demo",
+            session_id="session1"
+        )
+        prompt_content = types.Content(
+            role="user",
+            parts=[types.Part.from_text(text=prompt)]
+        )
+
+        async for event in runner.run_async(
+            user_id="demo",
+            session_id="session1",
+            new_message=prompt_content
+        ):
+            if not event.content or not event.content.parts:
+                continue
+
+            for part in event.content.parts:
+                # Capture tool calls for trace
+                if hasattr(part, "function_call") and part.function_call:
+                    fc = part.function_call
+                    args_preview = {k: str(v)[:80]
+                                    for k, v in dict(fc.args).items()}
+                    line = f"[TOOL CALL]  {fc.name}({args_preview})"
+                    trace_lines.append(line)
+                    console.print(f"[cyan]{line}[/cyan]")
+                    steps.append({
+                        "icon": "🔧",
+                        "label": f"Tool called: {fc.name}",
+                        "detail": ", ".join(f"{k}={v}" for k, v in args_preview.items()),
+                        "status": "ok"
+                    })
+
+                elif hasattr(part, "function_response") and part.function_response:
+                    line = f"[TOOL RESULT] {part.function_response.name}: response received"
+                    trace_lines.append(line)
+                    steps.append({
+                        "icon": "✅",
+                        "label": f"Tool result received: {part.function_response.name}",
+                        "detail": "",
+                        "status": "ok"
+                    })
+
+                elif hasattr(part, "text") and part.text:
+                    # *** KEY FIX: only grab text from final response events ***
+                    if event.is_final_response():
+                        brief_content += part.text
+                    else:
+                        # Intermediate text (thinking) — log to trace only
+                        trace_lines.append(f"[THINKING] {part.text[:150]}")
+
+        if not brief_content:
+            brief_content = (
+                "# Agent returned empty content\n\n"
+                "The model ran but produced no text. Possible causes:\n"
+                "- Knowledge base is empty (toggle 'Fetch fresh papers' ON)\n"
+                "- API quota exhausted\n"
+                "- Model produced only tool calls with no final synthesis\n\n"
+                "**Pipeline steps:**\n"
+                + "\n".join(f"- {s['label']}" for s in steps)
+            )
+            steps.append({
+                "icon": "❌",
+                "label": "Agent returned no brief content",
+                "detail": "Check API quota and knowledge base status",
+                "status": "error"
+            })
+        else:
+            steps.append({
+                "icon": "📝",
+                "label": "Hypothesis brief generated successfully",
+                "detail": f"{len(brief_content)} characters",
+                "status": "ok"
+            })
+
+    except Exception as e:
+        console.print(f"[red]Agent execution failed: {e}[/red]")
+        brief_content = f"# Error generating brief\n\n{e}"
+        steps.append({
+            "icon": "❌",
+            "label": "Agent execution failed",
+            "detail": str(e),
+            "status": "error"
+        })
+    finally:
+        if runner is not None:
+            try:
+                await runner.close()
+            except Exception as e:
+                console.print(f"[yellow]Runner cleanup failed: {e}[/yellow]")
+
+    # ── Step 3: Save brief ─────────────────────────────────────────────────
+    filepath = save_brief(disease_query, brief_content)
+    console.print(f"[Success] Brief saved to {filepath}")
+    steps.append({
+        "icon": "💾",
+        "label": "Brief saved to disk",
+        "detail": filepath,
+        "status": "ok"
+    })
+
+    trace_text = "\n".join(
+        trace_lines) if trace_lines else "No tool calls traced."
+
+    return {
+        "brief": brief_content,
+        "papers": papers,
+        "preprints": preprints,
+        "trials": trials,
+        "filepath": filepath,
+        "trace": trace_text,
+        "steps": steps,
+    }
