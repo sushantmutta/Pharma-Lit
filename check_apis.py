@@ -169,7 +169,7 @@ def check_env_keys() -> list[dict]:
     return results
 
 
-STATUS_ICONS = {"PASS": "✅", "WARN": "⚠️ ", "FAIL": "❌", "INFO": "ℹ️ "}
+STATUS_ICONS = {"PASS": "[PASS]", "WARN": "[WARN]", "FAIL": "[FAIL]", "INFO": "[INFO]"}
 STATUS_STYLES = {"PASS": "green", "WARN": "yellow", "FAIL": "red", "INFO": "cyan"}
 
 

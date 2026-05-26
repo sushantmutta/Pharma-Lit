@@ -1,6 +1,5 @@
 import asyncio
 import httpx
-from google.adk.tools import FunctionTool
 from rich.console import Console
 
 console = Console()
@@ -259,30 +258,5 @@ async def score_target_async(target_gene: str, disease: str) -> dict:
     return result
 
 
-def score_target(target_gene: str, disease: str) -> dict:
-    """
-    Sync wrapper for ADK FunctionTool compatibility.
-    Scores a candidate target gene using Open Targets + UniProt.
-    Returns a score from 1-10 with full breakdown for transparent scoring.
-    """
-    try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            # We're inside an async context (ADK agent) — use run_in_executor workaround
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor() as pool:
-                future = pool.submit(asyncio.run, score_target_async(target_gene, disease))
-                return future.result(timeout=30)
-        else:
-            return loop.run_until_complete(score_target_async(target_gene, disease))
-    except Exception as e:
-        console.print(f"[red]score_target failed for {target_gene}: {e}[/red]")
-        return {
-            "gene": target_gene, "score": 1, "score_raw": 0,
-            "ot_score": "Error", "tractability": "Unknown",
-            "uniprot_id": "Unknown", "protein_function": "Unknown",
-            "breakdown": [{"label": "Error", "points": 0, "source": "Pipeline", "detail": str(e)}],
-        }
-
-
-score_target_tool = FunctionTool(func=score_target)
+# Expose as score_target for BedrockAgent (async, no ADK wrapper needed)
+score_target = score_target_async

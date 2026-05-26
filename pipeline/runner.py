@@ -12,7 +12,8 @@ MVP improvements over POC:
 import asyncio
 import uuid
 from datetime import datetime, timedelta, timezone
-from agent.main_agent import agent
+from agent.main_agent import AGENT_TOOLS, system_prompt
+from agent.bedrock_agent import run_bedrock_agent
 from agent.tools.pubmed_tool import search_pubmed
 from agent.tools.preprint_tool import search_preprints
 from agent.tools.trials_tool import search_clinical_trials
@@ -21,8 +22,6 @@ from pipeline.brief_generator import save_brief
 from pipeline.brief_sanitize import sanitize_brief
 from pipeline.target_scores import enforce_target_scores
 from rich.console import Console
-from google.adk.runners import InMemoryRunner
-from google.genai import types
 import json
 
 console = Console()
@@ -51,7 +50,8 @@ def _filter_papers_by_date(papers: list, days_back: int) -> list:
 async def _fetch_pubmed(query: str, days_back: int, max_papers: int, steps: list) -> list:
     """Fetch PubMed papers with retry and date filtering."""
     try:
-        prefetch_query = f"{query} drug target 2025 2026"
+        # Broader query — no year restriction; days_back filter handles recency
+        prefetch_query = f"{query} drug target"
         all_papers = await search_pubmed(prefetch_query, days_back=days_back, max_results=max_papers)
         papers = _filter_papers_by_date(all_papers, days_back) if days_back > 0 else all_papers
 
@@ -180,11 +180,12 @@ async def run_pipeline(
             "detail": "Gene discovery found no validated candidates", "status": "warn"
         })
 
-    # ── Step 4: Run ADK agent ─────────────────────────────────────────────────
-    console.print("[bold]Starting ADK Agent (Gemini)...[/bold]")
+    # ── Step 4: Run Bedrock agent ─────────────────────────────────────────────
+    console.print("[bold]Starting Bedrock Agent (Claude)...[/bold]")
     steps.append({
-        "icon": "🤖", "label": "Agent started — querying RAG, PubMed, Open Targets, UniProt",
-        "detail": f"Disease area: {disease_query}", "status": "ok"
+        "icon": "R", "label": "Agent started — querying RAG, PubMed, Open Targets, UniProt",
+        "detail": f"Model: {__import__('os').getenv('BEDROCK_MODEL_ID', 'claude-3-haiku')} | Disease: {disease_query}",
+        "status": "ok"
     })
 
     prompt_parts = [
@@ -197,104 +198,44 @@ async def run_pipeline(
     prompt = "\n".join(prompt_parts)
     trace_lines = []
     brief_content = ""
-    agent_scores_raw = []  # any scores agent returns via tool
-
-    # Use unique session IDs to avoid stale agent state between runs
-    session_id = f"session_{uuid.uuid4().hex[:8]}"
-    runner = None
 
     try:
-        runner = InMemoryRunner(agent=agent)
-        await runner.session_service.create_session(
-            app_name="InMemoryRunner",
-            user_id="pharmalit",
-            session_id=session_id,
+        brief_content = await run_bedrock_agent(
+            user_message=prompt,
+            system_prompt=system_prompt,
+            tool_functions=AGENT_TOOLS,
+            steps=steps,
+            trace_lines=trace_lines,
         )
-        prompt_content = types.Content(
-            role="user",
-            parts=[types.Part.from_text(text=prompt)]
-        )
-
-        async for event in runner.run_async(
-            user_id="pharmalit",
-            session_id=session_id,
-            new_message=prompt_content,
-        ):
-            if not event.content or not event.content.parts:
-                continue
-
-            for part in event.content.parts:
-                if hasattr(part, "function_call") and part.function_call:
-                    fc = part.function_call
-                    args_preview = {k: str(v)[:80] for k, v in dict(fc.args).items()}
-                    line = f"[TOOL CALL]  {fc.name}({args_preview})"
-                    trace_lines.append(line)
-                    console.print(f"[cyan]{line}[/cyan]")
-                    steps.append({
-                        "icon": "🔧", "label": f"Tool called: {fc.name}",
-                        "detail": ", ".join(f"{k}={v}" for k, v in args_preview.items()),
-                        "status": "ok"
-                    })
-
-                elif hasattr(part, "function_response") and part.function_response:
-                    fr = part.function_response
-                    line = f"[TOOL RESULT] {fr.name}: response received"
-                    trace_lines.append(line)
-                    steps.append({
-                        "icon": "✅", "label": f"Tool result received: {fr.name}",
-                        "detail": "", "status": "ok"
-                    })
-                    # Capture any score_target results from agent
-                    if fr.name == "score_target":
-                        try:
-                            resp_data = fr.response
-                            if isinstance(resp_data, dict) and "gene" in resp_data:
-                                agent_scores_raw.append(resp_data)
-                            elif isinstance(resp_data, str):
-                                parsed = json.loads(resp_data)
-                                if isinstance(parsed, dict) and "gene" in parsed:
-                                    agent_scores_raw.append(parsed)
-                        except Exception:
-                            pass
-
-                elif hasattr(part, "text") and part.text:
-                    if event.is_final_response():
-                        brief_content += part.text
-                    else:
-                        trace_lines.append(f"[THINKING] {part.text[:150]}")
 
         if not brief_content:
             brief_content = (
                 "# Agent returned empty content\n\n"
                 "The model ran but produced no text. Possible causes:\n"
                 "- Knowledge base is empty (set fetch_fresh=True)\n"
-                "- API quota exhausted\n"
+                "- AWS credentials not configured\n"
                 "- Model produced only tool calls with no final synthesis\n\n"
                 "**Pipeline steps:**\n"
                 + "\n".join(f"- {s['label']}" for s in steps)
             )
             steps.append({
-                "icon": "❌", "label": "Agent returned no brief content",
-                "detail": "Check API quota and knowledge base status", "status": "error"
+                "icon": "X", "label": "Agent returned no brief content",
+                "detail": "Check AWS credentials and knowledge base status", "status": "error"
             })
         else:
             steps.append({
-                "icon": "📝", "label": "Hypothesis brief generated successfully",
+                "icon": "OK", "label": "Hypothesis brief generated successfully",
                 "detail": f"{len(brief_content)} characters", "status": "ok"
             })
 
     except Exception as e:
-        console.print(f"[red]Agent execution failed: {e}[/red]")
+        console.print(f"[red]Bedrock agent execution failed: {e}[/red]")
         import traceback
         traceback.print_exc()
         brief_content = f"# Error generating brief\n\n{e}"
-        steps.append({"icon": "❌", "label": "Agent execution failed", "detail": str(e), "status": "error"})
-    finally:
-        if runner is not None:
-            try:
-                await runner.close()
-            except Exception as e:
-                console.print(f"[yellow]Runner cleanup: {e}[/yellow]")
+        steps.append({"icon": "X", "label": "Bedrock agent failed", "detail": str(e), "status": "error"})
+
+    agent_scores_raw = []  # Bedrock agent may score via score_target tool; captured in trace
 
     # ── Step 5: Sanitize brief ────────────────────────────────────────────────
     brief_content = sanitize_brief(brief_content)

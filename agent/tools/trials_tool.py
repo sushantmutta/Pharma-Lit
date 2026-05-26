@@ -1,6 +1,5 @@
 import asyncio
 import json
-from google.adk.tools import FunctionTool
 from biomcp.trials.search import search_trials, TrialQuery
 from rich.console import Console
 
@@ -51,4 +50,4 @@ async def search_clinical_trials(condition: str, intervention: str = "", status:
         console.print(f"[red]Error searching clinical trials: {e}[/red]")
         return []
 
-trials_search_tool = FunctionTool(func=search_clinical_trials)
+# No FunctionTool wrapper needed — BedrockAgent uses the raw async function directly

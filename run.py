@@ -24,9 +24,9 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 def start_api(port: int = 8000, reload: bool = True):
     """Launch FastAPI + uvicorn. Serves both API and frontend at same port."""
     console.print(f"\n[bold cyan]PharmaLit MVP — FastAPI[/bold cyan]")
-    console.print(f"[green]→ API + Frontend:[/green] http://localhost:{port}")
-    console.print(f"[green]→ API docs:[/green]      http://localhost:{port}/docs")
-    console.print(f"[green]→ Health check:[/green]  http://localhost:{port}/api/health")
+    console.print(f"[green]> API + Frontend:[/green] http://localhost:{port}")
+    console.print(f"[green]> API docs:[/green]      http://localhost:{port}/docs")
+    console.print(f"[green]> Health check:[/green]  http://localhost:{port}/api/health")
     console.print(f"\n[dim]Press Ctrl+C to stop[/dim]\n")
 
     # Check uvicorn is installed

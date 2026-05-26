@@ -1,7 +1,6 @@
 import asyncio
 import json
 from datetime import datetime, timedelta
-from google.adk.tools import FunctionTool
 from biomcp.articles.search import search_articles, PubmedRequest
 from rich.console import Console
 
@@ -52,4 +51,4 @@ async def search_pubmed(query: str, days_back: int = 7, max_results: int = 20) -
             
     return []
 
-pubmed_search_tool = FunctionTool(func=search_pubmed)
+# No FunctionTool wrapper needed — BedrockAgent uses the raw async function directly

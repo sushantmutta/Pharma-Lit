@@ -3,7 +3,7 @@ import glob
 from pathlib import Path
 import chromadb
 from chromadb.config import Settings
-from sentence_transformers import SentenceTransformer
+from rag.embeddings import get_embedding_model
 import httpx
 from pypdf import PdfReader
 from rich.console import Console
@@ -20,10 +20,6 @@ collection = client.get_or_create_collection(
     name="pharma_papers",
     metadata={"hnsw:space": "cosine"}
 )
-
-# Load embedding model
-console.print("[dim]Loading sentence-transformer model (all-MiniLM-L6-v2)...[/dim]")
-embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
 
 def chunk_text(text: str, chunk_size: int = 200, overlap: int = 20) -> list[str]:
     """Basic chunking splitting by words to approximate tokens."""
@@ -102,6 +98,7 @@ def ingest_papers(papers: list[dict]):
             ids.append(f"pubmed_{paper.get('pmid', 'unknown')}_{i}")
 
     if documents:
+        embedding_model = get_embedding_model()
         embeddings = embedding_model.encode(documents).tolist()
         collection.upsert(
             ids=ids,
@@ -145,6 +142,7 @@ def ingest_internal_docs(docs_dir: str):
             ids.append(f"internal_{filename}_{i}")
             
     if documents:
+        embedding_model = get_embedding_model()
         embeddings = embedding_model.encode(documents).tolist()
         collection.upsert(
             ids=ids,

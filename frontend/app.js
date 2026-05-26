@@ -52,7 +52,7 @@ function render() {
 function renderHeader() {
   const navItem = (label, route, id) => {
     const active = state.route === route ? 'active' : '';
-    return `<button class="nav-btn ${active}" id="${id}" onclick="navigate('${route}')">${label}</button>`;
+    return `<button class="nav-btn ${active}" id="${id}" data-route="${route}">${label}</button>`;
   };
   const dotClass = state.healthStatus
     ? (state.healthStatus.status === 'ok' ? 'ok' : state.healthStatus.status === 'degraded' ? 'degraded' : 'error')
@@ -66,12 +66,7 @@ function renderHeader() {
     <nav>
       ${navItem('Landing', 'landing', 'nav-landing')}
       ${navItem('Analysis', 'app', 'nav-app')}
-      ${navItem('API Health', 'health', 'nav-health')}
     </nav>
-    <div style="display:flex;align-items:center;gap:8px;font-size:0.78rem;color:var(--text-dim)">
-      <span class="health-dot ${dotClass}"></span>
-      <span>${state.healthStatus ? state.healthStatus.status.toUpperCase() : 'checking...'}</span>
-    </div>
   </header>`;
 }
 
@@ -255,7 +250,6 @@ function renderApp() {
     { label: '📚 Papers',       count: results?.papers?.length },
     { label: '🧪 Preprints',    count: results?.preprints?.length },
     { label: '🏥 Trials',       count: results?.trials?.length },
-    { label: '🔍 Agent Trace',  count: null },
   ];
 
   return `
@@ -367,9 +361,6 @@ function renderApp() {
       </div>
       <div class="tab-panel ${state.activeTab === 3 ? 'active' : ''}" id="tab-panel-3">
         ${renderTrialsTab(results.trials || [])}
-      </div>
-      <div class="tab-panel ${state.activeTab === 4 ? 'active' : ''}" id="tab-panel-4">
-        ${renderTraceTab(results)}
       </div>
     </div>` : ''}
   </div>`;
@@ -654,6 +645,14 @@ function renderRingSVG(score, size, color) {
 // EVENT HANDLERS
 // ═══════════════════════════════════════════════════════════════════════════════
 function attachHandlers() {
+  // Nav header buttons
+  document.querySelectorAll('.nav-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const route = e.target.getAttribute('data-route');
+      if (route) navigate(route);
+    });
+  });
+
   // Landing CTAs
   bindClick('hero-cta-btn', () => navigate('app'));
   bindClick('cta-bottom-btn', () => navigate('app'));
@@ -698,7 +697,7 @@ function attachHandlers() {
   bindClick('clear-kb-btn', clearKB);
 
   // App: tabs
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < 4; i++) {
     bindClick(`tab-btn-${i}`, () => {
       state.activeTab = i;
       document.querySelectorAll('.tab-btn').forEach((b, j) => b.classList.toggle('active', j === i));

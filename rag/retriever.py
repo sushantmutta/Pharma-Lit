@@ -1,15 +1,12 @@
 import os
 from chromadb import PersistentClient
-from sentence_transformers import SentenceTransformer
+from rag.embeddings import get_embedding_model
 from rich.console import Console
 
 console = Console()
 
 CHROMA_DB_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "chroma_db")
 client = PersistentClient(path=CHROMA_DB_DIR)
-
-# Load embedding model
-embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
 
 def search_rag(query: str, n_results: int = 5) -> list[dict]:
     """
@@ -22,7 +19,7 @@ def search_rag(query: str, n_results: int = 5) -> list[dict]:
         console.print(f"[yellow]ChromaDB collection not found or empty: {e}[/yellow]")
         return []
 
-    query_embedding = embedding_model.encode([query]).tolist()
+    query_embedding = get_embedding_model().encode([query]).tolist()
 
     try:
         results = collection.query(
