@@ -17,7 +17,21 @@ const state = {
   activeTab: 0,
   ragStats: { chunk_count: 0, paper_count: 0 },
   healthStatus: null,
+  isDark: true,          // default: dark mode
 };
+
+// ─── Theme helpers ────────────────────────────────────────────────────────────
+function applyTheme() {
+  document.body.classList.toggle('light-mode', !state.isDark);
+  localStorage.setItem('pharmalit-theme', state.isDark ? 'dark' : 'light');
+}
+function toggleTheme() {
+  state.isDark = !state.isDark;
+  applyTheme();
+  // Update button icon without full re-render
+  const btn = document.getElementById('theme-toggle-btn');
+  if (btn) btn.textContent = state.isDark ? '☀️' : '🌙';
+}
 
 // ─── DOM root ─────────────────────────────────────────────────────────────────
 const $app = document.getElementById('app');
@@ -66,6 +80,7 @@ function renderHeader() {
     <nav>
       ${navItem('Landing', 'landing', 'nav-landing')}
       ${navItem('Analysis', 'app', 'nav-app')}
+      <button class="theme-toggle" id="theme-toggle-btn" title="Toggle light/dark mode">${state.isDark ? '☀️' : '🌙'}</button>
     </nav>
   </header>`;
 }
@@ -726,6 +741,9 @@ function attachHandlers() {
 
   // Health: refresh
   bindClick('refresh-health-btn', loadHealth);
+
+  // Theme toggle
+  bindClick('theme-toggle-btn', toggleTheme);
 }
 
 function bindClick(id, fn) {
@@ -878,6 +896,11 @@ function escapeHtml(str) {
 // INIT
 // ═══════════════════════════════════════════════════════════════════════════════
 (async function init() {
+  // Restore theme from localStorage
+  const savedTheme = localStorage.getItem('pharmalit-theme');
+  if (savedTheme === 'light') state.isDark = false;
+  applyTheme();
+
   // Detect current route from hash
   const hash = window.location.hash.replace('#', '') || 'landing';
   state.route = hash;
