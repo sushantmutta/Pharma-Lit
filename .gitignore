@@ -5,3 +5,4 @@ __pycache__/
 chroma_db/
 data/chroma/
 outputs/*.md
+.venv/

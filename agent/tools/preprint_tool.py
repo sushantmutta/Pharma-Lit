@@ -1,7 +1,6 @@
 import asyncio
 import httpx
 from datetime import datetime, timedelta
-from google.adk.tools import FunctionTool
 from rich.console import Console
 
 console = Console()
@@ -61,4 +60,4 @@ async def search_preprints(query: str, days_back: int = 180, max_results: int = 
     return results
 
 
-preprint_search_tool = FunctionTool(func=search_preprints)
+# No FunctionTool wrapper needed — BedrockAgent uses the raw async function directly
