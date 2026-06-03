@@ -21,7 +21,7 @@ console = Console()
 ROOT = os.path.dirname(os.path.abspath(__file__))
 
 
-def start_api(port: int = 8000, reload: bool = True):
+def start_api(port: int = 8000, reload: bool = False):
     """Launch FastAPI + uvicorn. Serves both API and frontend at same port."""
     console.print(f"\n[bold cyan]PharmaLit MVP — FastAPI[/bold cyan]")
     console.print(f"[green]> API + Frontend:[/green] http://localhost:{port}")
@@ -41,8 +41,7 @@ def start_api(port: int = 8000, reload: bool = True):
         "api.main:app",
         host="0.0.0.0",
         port=port,
-        reload=reload,
-        reload_dirs=[ROOT] if reload else None,
+        reload=False,
     )
 
 
@@ -76,7 +75,7 @@ Examples:
         return
 
     # Default: always start API
-    start_api(port=args.port, reload=not args.no_reload)
+    start_api(port=args.port, reload=False)
 
 
 if __name__ == "__main__":

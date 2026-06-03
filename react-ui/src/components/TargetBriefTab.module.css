@@ -1,0 +1,62 @@
+.wrap { display: flex; flex-direction: column; gap: 1rem; }
+
+.cardList { display: flex; flex-direction: column; gap: 0.85rem; }
+
+.empty {
+  color: var(--text-dim);
+  text-align: center;
+  padding: 2rem;
+  font-size: 0.9rem;
+}
+
+.briefSection { margin-top: 0.5rem; }
+
+.briefToggle {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-family: inherit;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.briefToggle:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.briefBody {
+  margin-top: 2px;
+  padding: 1.25rem;
+  border: 1px solid var(--border);
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+  border-top: none;
+  font-size: 0.875rem;
+  line-height: 1.7;
+  color: var(--text-muted);
+}
+
+.briefBody h1, .briefBody h2 {
+  color: var(--text);
+  margin: 1em 0 0.5em;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.25em;
+}
+.briefBody h3 { color: var(--text); margin: 0.8em 0 0.4em; }
+.briefBody strong { color: var(--text); }
+.briefBody code {
+  background: var(--surface-2);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 0.85em;
+  color: var(--accent);
+}
+.briefBody p { margin-bottom: 0.75em; }

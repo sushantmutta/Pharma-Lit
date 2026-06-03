@@ -1,7 +1,7 @@
 import asyncio
 import json
 from datetime import datetime, timedelta
-from biomcp.articles.search import search_articles, PubmedRequest
+from biomcp.articles.search import search_articles,PubmedRequest
 from rich.console import Console
 
 console = Console()

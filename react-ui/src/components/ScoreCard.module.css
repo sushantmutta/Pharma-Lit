@@ -1,0 +1,135 @@
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.25rem;
+  transition: var(--transition);
+}
+
+.card:hover { border-color: #bae6fd; box-shadow: 0 0 0 3px #e0f2fe40; }
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.left {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.gauge { display: block; }
+
+.info { display: flex; flex-direction: column; gap: 2px; }
+
+.gene {
+  font-size: 1.35rem;
+  font-weight: 800;
+  color: var(--text);
+  letter-spacing: -0.02em;
+}
+
+.label {
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  font-weight: 500;
+}
+
+.ids {
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  font-family: 'JetBrains Mono', 'Courier New', monospace;
+}
+
+/* Tractability badges */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 12px;
+  border-radius: 99px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.badgeSm { background: var(--green-soft); color: #065f46; }
+.badgeAb { background: var(--teal-soft); color: #134e4a; }
+.badgeUnk { background: var(--surface-2); color: var(--text-dim); }
+
+/* Function text */
+.fn {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  line-height: 1.55;
+  border-left: 2px solid #bae6fd;
+  padding-left: 0.65rem;
+  margin-bottom: 0.75rem;
+}
+
+/* Breakdown */
+.breakdownToggle {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.4rem 0.75rem;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  font-family: inherit;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.breakdownToggle:hover { border-color: var(--accent); color: var(--accent); }
+
+.breakdownBody {
+  margin-top: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  overflow: hidden;
+}
+
+.bdRow {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 10px;
+  font-size: 0.78rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.bdRow:last-of-type { border-bottom: none; }
+
+.bdLabel { color: var(--text-muted); }
+
+.bdSource {
+  font-size: 0.65rem;
+  background: var(--accent-soft);
+  color: var(--accent);
+  padding: 1px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.bdPts { font-weight: 700; color: var(--text); text-align: right; }
+
+.bdTotal {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--surface-2);
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--accent);
+  border-top: 1px solid var(--border);
+}

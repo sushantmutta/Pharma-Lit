@@ -12,8 +12,7 @@ MVP improvements over POC:
 import asyncio
 import uuid
 from datetime import datetime, timedelta, timezone
-from agent.main_agent import AGENT_TOOLS, system_prompt
-from agent.bedrock_agent import run_bedrock_agent
+from agent.main_agent import system_prompt
 from agent.tools.pubmed_tool import search_pubmed
 from agent.tools.preprint_tool import search_preprints
 from agent.tools.trials_tool import search_clinical_trials
@@ -105,6 +104,59 @@ async def _fetch_trials(query: str, steps: list) -> list:
         return []
 
 
+async def _generate_brief(prompt: str, system_prompt: str) -> str:
+    import os
+    import httpx
+    
+    # Try Gemini First
+    api_key = os.getenv("GOOGLE_API_KEY", "")
+    text = ""
+    if api_key:
+        try:
+            from google import genai
+            client = genai.Client(api_key=api_key)
+            loop = asyncio.get_event_loop()
+            response = await loop.run_in_executor(
+                None,
+                lambda: client.models.generate_content(
+                    model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
+                    contents=prompt,
+                    config={"system_instruction": system_prompt, "temperature": 0.1}
+                )
+            )
+            text = (response.text or "").strip()
+            if text:
+                return text
+        except Exception as e:
+            console.print(f"[yellow]Gemini brief generation failed: {e}. Falling back to Groq...[/yellow]")
+
+    # Fallback to Groq
+    groq_key = os.getenv("GROQ_API_KEY", "")
+    if not groq_key:
+        return "# Error\n\nGemini failed and GROQ_API_KEY is not set."
+        
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers={"Authorization": f"Bearer {groq_key}"},
+                json={
+                    "model": "llama-3.3-70b-versatile",
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": prompt}
+                    ],
+                    "temperature": 0.1
+                }
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return data["choices"][0]["message"]["content"].strip()
+    except Exception as e:
+        console.print(f"[red]Groq fallback failed: {e}[/red]")
+        return f"# Error\n\nBoth Gemini and Groq failed: {e}"
+
+
 async def run_pipeline(
     disease_query: str,
     days_back: int = 180,
@@ -180,47 +232,54 @@ async def run_pipeline(
             "detail": "Gene discovery found no validated candidates", "status": "warn"
         })
 
-    # ── Step 4: Run Bedrock agent ─────────────────────────────────────────────
-    console.print("[bold]Starting Bedrock Agent (Claude)...[/bold]")
+    # ── Step 4: Generate Brief (Gemini / Groq) ────────────────────────────────
+    console.print("[bold]Generating brief (Gemini / Groq)...[/bold]")
     steps.append({
-        "icon": "R", "label": "Agent started — querying RAG, PubMed, Open Targets, UniProt",
-        "detail": f"Model: {__import__('os').getenv('BEDROCK_MODEL_ID', 'claude-3-haiku')} | Disease: {disease_query}",
+        "icon": "🤖", "label": "Generating hypothesis brief",
+        "detail": f"Model: Gemini 2.5 / Groq Llama 3.3 | Disease: {disease_query}",
         "status": "ok"
     })
 
-    prompt_parts = [
-        f"Analyze the following disease area and produce a full hypothesis brief: {disease_query}\n",
-        f"IMPORTANT: When calling search_pubmed, use days_back={days_back} and max_results={max_papers}.",
-    ]
-    if pre_score_text:
-        prompt_parts.append(f"\n{pre_score_text}")
+    # Build mega-prompt context
+    paper_text = "\n\n=== PUBMED PAPERS ===\n"
+    if papers:
+        for p in papers[:12]:
+            paper_text += f"- {p.get('title','')}\n  PMID: {p.get('pmid','')}\n  {p.get('abstract','')[:300]}...\n"
+    else:
+        paper_text += "No papers found.\n"
 
-    prompt = "\n".join(prompt_parts)
+    preprint_text = "\n=== PREPRINTS ===\n"
+    if preprints:
+        for p in preprints[:5]:
+            preprint_text += f"- {p.get('title','')}\n  DOI: {p.get('doi','')}\n  {p.get('abstract','')[:200]}...\n"
+    else:
+        preprint_text += "No preprints found.\n"
+
+    trial_text = "\n=== CLINICAL TRIALS ===\n"
+    if trials:
+        for t in trials[:5]:
+            trial_text += (
+                f"- {t.get('title','')}\n  Phase: {t.get('phase','')}, Status: {t.get('status','')}\n"
+                f"  NCT: {t.get('nct_id','')}, Interventions: {t.get('interventions','')}\n"
+            )
+    else:
+        trial_text += "No clinical trials found.\n"
+
+    prompt = (
+        f"Generate a hypothesis brief for: {disease_query}\n"
+        f"\n{pre_score_text}{paper_text}{preprint_text}{trial_text}"
+    )
+
     trace_lines = []
     brief_content = ""
 
     try:
-        brief_content = await run_bedrock_agent(
-            user_message=prompt,
-            system_prompt=system_prompt,
-            tool_functions=AGENT_TOOLS,
-            steps=steps,
-            trace_lines=trace_lines,
-        )
+        brief_content = await _generate_brief(prompt, system_prompt)
 
-        if not brief_content:
-            brief_content = (
-                "# Agent returned empty content\n\n"
-                "The model ran but produced no text. Possible causes:\n"
-                "- Knowledge base is empty (set fetch_fresh=True)\n"
-                "- AWS credentials not configured\n"
-                "- Model produced only tool calls with no final synthesis\n\n"
-                "**Pipeline steps:**\n"
-                + "\n".join(f"- {s['label']}" for s in steps)
-            )
+        if not brief_content or "# Error" in brief_content:
             steps.append({
-                "icon": "X", "label": "Agent returned no brief content",
-                "detail": "Check AWS credentials and knowledge base status", "status": "error"
+                "icon": "X", "label": "Agent returned error / no brief",
+                "detail": "Check API keys and quota", "status": "error"
             })
         else:
             steps.append({
@@ -229,27 +288,21 @@ async def run_pipeline(
             })
 
     except Exception as e:
-        console.print(f"[red]Bedrock agent execution failed: {e}[/red]")
-        import traceback
-        traceback.print_exc()
+        console.print(f"[red]Brief generation failed: {e}[/red]")
         brief_content = f"# Error generating brief\n\n{e}"
-        steps.append({"icon": "X", "label": "Bedrock agent failed", "detail": str(e), "status": "error"})
+        steps.append({"icon": "X", "label": "Brief generation failed", "detail": str(e), "status": "error"})
 
-    agent_scores_raw = []  # Bedrock agent may score via score_target tool; captured in trace
+    agent_scores_raw = []
 
     # ── Step 5: Sanitize brief ────────────────────────────────────────────────
     brief_content = sanitize_brief(brief_content)
 
     # ── Step 6: Final target score enforcement ────────────────────────────────
-    # Run again with brief for any genes mentioned there that we missed
     if pre_scores:
-        # Supplement with any agent scores for genes not already in pre_scores
-        from pipeline.target_scores import _merge_scores
-        target_scores = _merge_scores(pre_scores, agent_scores_raw)
+        target_scores = pre_scores
     else:
-        # No pre-scores — try to discover from brief now
         target_scores = await enforce_target_scores(
-            disease_query, papers, brief=brief_content, agent_scores=agent_scores_raw
+            disease_query, papers, brief=brief_content, agent_scores=[]
         )
 
     if target_scores:

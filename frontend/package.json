@@ -1,9 +1,0 @@
-{
-  "name": "pharmalit-frontend",
-  "version": "1.0.0",
-  "description": "PharmaLit MVP Frontend (static SPA - no build step required)",
-  "main": "index.html",
-  "scripts": {
-    "note": "No build step needed. Files are served directly by FastAPI from the frontend/ folder."
-  }
-}
